@@ -1,6 +1,8 @@
 <template>
   <div>
     <canvas ref="experience" class="half-size-canvas"></canvas>
+    <br />
+    <button v-on:click="testdyno">Show green</button>
   </div>
 </template>
 
@@ -54,7 +56,6 @@ export default defineComponent({
         spheres.push(sphere); // Add sphere to the array
       });
     };
-
     onMounted(() => {
       if (experience.value) {
         renderer = new WebGLRenderer({
@@ -66,7 +67,7 @@ export default defineComponent({
         renderer.setSize(window.innerWidth / 2, window.innerHeight / 2);
 
         const controls = new OrbitControls(camera, renderer.domElement);
-        camera.position.set(0, 16, 1);
+        camera.position.set(0, 16, 0);
         controls.update();
 
         const animate = () => {
@@ -80,6 +81,7 @@ export default defineComponent({
         loader.load(
           '../src/assets/models/gear.gltf.glb',
           (gltf) => {
+            gltf.scene.position.y = -2;
             scene.add(gltf.scene);
             createSpheresFromData(deviations, scene);
 
@@ -95,7 +97,6 @@ export default defineComponent({
         );
       }
     });
-
     const onMouseClick = (event: MouseEvent) => {
       if (!renderer) return;
 
@@ -123,10 +124,17 @@ export default defineComponent({
         window.document.dispatchEvent(event);
       }
     };
-
     return {
-      experience
+      experience,
+      spheres
     };
+  }, /* end setup */
+  methods: {
+    testdyno() {
+      this.spheres.forEach(element => {
+        if (element.userData.tag == 'green') element.visible = !element.visible;
+      });
+    }
   }
 });
 </script>
