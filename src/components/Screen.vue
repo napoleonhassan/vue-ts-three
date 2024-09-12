@@ -110,6 +110,8 @@ export default {
       if (intersects.length > 0) {
         const sphereTag = intersects[0].object.userData.tag;
         output.value = sphereTag;
+        const event = new CustomEvent('deviation-clicked-event', { detail: sphereTag })
+        window.document.dispatchEvent(event);
       }
     };
 
