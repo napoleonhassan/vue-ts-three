@@ -1,6 +1,5 @@
 <template>
   <div>
-
     <canvas ref="experience" class="half-size-canvas"></canvas>
 
     <div class="cols">
@@ -10,7 +9,7 @@
         </li>
         <li>
           <button @click="toggleMarkers('green')">Toggle Green</button>
-        </li>      
+        </li>
         <li>
           <button @click="toggleMarkers('blue')">Toggle Blue</button>
         </li>
@@ -20,24 +19,25 @@
         <p>{{ output }}</p>
       </div>
     </div>
-
   </div>
 </template>
 
 <script lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, shallowRef } from 'vue';
 import {
+  AxesHelper,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
-  AmbientLight,
-  SphereGeometry,
-  Mesh,
-  MeshBasicMaterial,
+  DirectionalLight,
   Raycaster,
-  Vector2
+  Vector2,
+  Mesh,
+  MeshMatcapMaterial,
+  SphereGeometry,
+  TextureLoader
 } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export default {
@@ -54,25 +54,37 @@ export default {
       type: Array,
       required: false,
     },
+    textureUrl: {
+      type: String,
+      required: false,
+    },
   },
 
-  
   setup(props) {
     const experience = ref<HTMLCanvasElement | null>(null);
-    const output = ref<string>('');
+    const output = shallowRef<string>('');
 
     const scene = new Scene();
-    const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 1000);
-    camera.position.z = 5;
+    const camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
+    
+    // Set the camera position and ensure it looks at the center of the scene
+    camera.position.set(75, 0, 0); // Adjust the position as needed
+    camera.lookAt(0, 0, 0); // Ensure camera is looking at the center
 
-    const ambientLight = new AmbientLight(0xffffff, props.lightIntensity); // Use the prop for light intensity
-    scene.add(ambientLight);
+    // Directional light with shadows
+    const directionalLight = new DirectionalLight(0xffffff, 1.0);
+    directionalLight.position.set(10, 10, 10);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.bias = -0.0005;
+    scene.add(directionalLight);
 
     let renderer: WebGLRenderer | null = null;
     const raycaster = new Raycaster();
     const mouse = new Vector2();
 
-    const spheres: Mesh[] = []; // Array to hold all sphere meshes
+    const spheres: Mesh[] = [];
 
     const createSpheresFromData = (data: any, scene: Scene) => {
       data.forEach((sphereInfo: any) => {
@@ -81,12 +93,15 @@ export default {
           sphereInfo.widthSegments,
           sphereInfo.heightSegments
         );
-        const material = new MeshBasicMaterial({ color: sphereInfo.color });
+        const material = new MeshMatcapMaterial({
+          color: sphereInfo.color,
+          matcap: new TextureLoader().load(props.textureUrl || '')
+        });
         const sphere = new Mesh(geometry, material);
         sphere.userData.tag = sphereInfo.tag;
         sphere.position.set(sphereInfo.position.x, sphereInfo.position.y, sphereInfo.position.z);
         scene.add(sphere);
-        spheres.push(sphere); // Add sphere to the array
+        spheres.push(sphere);
       });
     };
 
@@ -99,18 +114,13 @@ export default {
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-      raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
-      raycaster.ray.direction
-        .set(mouse.x, mouse.y, 1)
-        .unproject(camera)
-        .sub(raycaster.ray.origin)
-        .normalize();
-
+      raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(spheres);
       if (intersects.length > 0) {
         const sphereTag = intersects[0].object.userData.tag;
         output.value = sphereTag;
-        const event = new CustomEvent('deviation-clicked-event', { detail: sphereTag })
+        console.log(sphereTag);
+        const event = new CustomEvent('deviation-clicked-event', { detail: sphereTag });
         window.document.dispatchEvent(event);
       }
     };
@@ -127,11 +137,11 @@ export default {
           canvas: experience.value,
           antialias: true,
         });
-
-        renderer.setSize(window.innerWidth / 2, window.innerHeight / 2);
+        renderer.setSize(1600, 1200);
+        renderer.shadowMap.enabled = true;
+        // renderer.shadowMap.type = PCFSoftShadowMap; // Softer shadows
 
         const controls = new OrbitControls(camera, renderer.domElement);
-        camera.position.set(0, 16, 0);
         controls.update();
 
         const animate = () => {
@@ -141,20 +151,37 @@ export default {
         };
         animate();
 
-        const loader = new GLTFLoader();
+        const loader = new STLLoader();
         loader.load(
           props.modelUrl,
-          (gltf) => {
-            gltf.scene.position.y = -2;
-            scene.add(gltf.scene);
+          (geometry) => {
+            const material = new MeshMatcapMaterial({
+              color: 0xcccccc,
+              matcap: new TextureLoader().load(props.textureUrl || '')
+            });
+            const mesh = new Mesh(geometry, material);
+
+            mesh.geometry.computeVertexNormals();
+            mesh.geometry.center();
+
+            mesh.scale.set(0.1, 0.1, 0.1);
+            scene.add(mesh);
+
+            // Add AxesHelper to show model rotation
+            const axesHelper = new AxesHelper(50); // Adjust the size if needed
+            
+            mesh.add(axesHelper);
+
+            // Create spheres from the provided data
             createSpheresFromData(props.data, scene);
+
             window.addEventListener('click', onMouseClick, false);
           },
           (xhr) => {
-            // console.log(`${(xhr.loaded / xhr.total) * 100}% loaded`);
+            console.log(`${(xhr.loaded / xhr.total) * 100}% loaded`);
           },
           (error) => {
-            console.error('An error happened while loading the GLTF model', error);
+            console.error('An error occurred while loading the STL model', error);
           }
         );
       }
@@ -171,16 +198,12 @@ export default {
 
 <style scoped>
 .half-size-canvas {
-  width: 50vw;
-  height: 50vh;
   border: 1px solid black;
 }
 .cols {
   display: flex;
 }
 .output {
-  :last-child {
-    margin-left: 3rem;
-  }
+  margin-left: 3rem;
 }
 </style>

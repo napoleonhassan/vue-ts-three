@@ -1,9 +1,10 @@
 <template>
   <main class="container m-auto p-10">
     <Screen 
-    :lightIntensity="10"
-    :modelUrl="'../src/assets/models/gear.gltf.glb'"
-    :data="deviations"
+      :lightIntensity="1"
+      :modelUrl="'../src/assets/models/Flywheel.stl'"
+      :textureUrl="'../src/assets/materials/basic_1.jpg'"
+      :data="deviations"
     />
   </main>
 </template>
