@@ -1,7 +1,6 @@
 <template>
   <div>
     <canvas ref="experience" class="half-size-canvas"></canvas>
-
     <div class="cols">
       <ul>
         <li>
@@ -35,7 +34,8 @@ import {
   Mesh,
   MeshMatcapMaterial,
   SphereGeometry,
-  TextureLoader
+  TextureLoader,
+  Vector3,
 } from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -52,7 +52,7 @@ export default {
     },
     data: {
       type: Array,
-      required: false,
+      required: true
     },
     textureUrl: {
       type: String,
@@ -65,11 +65,17 @@ export default {
     const output = shallowRef<string>('');
 
     const scene = new Scene();
-    const camera = new PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1000);
-    
-    // Set the camera position and ensure it looks at the center of the scene
-    camera.position.set(75, 0, 0); // Adjust the position as needed
-    camera.lookAt(0, 0, 0); // Ensure camera is looking at the center
+    const camera = new PerspectiveCamera(50, 900 / 500, 1, 1000);
+    camera.position.set(50, 0, 0);  // Initial position of the camera
+    camera.position.y = -30;
+
+    const target = new Vector3(0, 0, 0);  // Initial target (center of the scene)
+    let isAnimating = false;
+    let animationProgress = 0;
+    const animationDuration = 60;  // Frames for smooth transition
+
+    const modelCenter = new Vector3(0, 0, 0);  // Assuming model's center at (0,0,0)
+    let modelBoundingSphereRadius = 50;  // Adjust depending on your model's size
 
     // Directional light with shadows
     const directionalLight = new DirectionalLight(0xffffff, 1.0);
@@ -85,6 +91,17 @@ export default {
     const mouse = new Vector2();
 
     const spheres: Mesh[] = [];
+
+    // Helper function to lerp between two vectors
+    const lerp = (start: Vector3, end: Vector3, alpha: number) => {
+      return start.clone().lerp(end, alpha);
+    };
+
+    // For smooth camera movement
+    let initialCameraPosition = new Vector3();
+    let initialLookAtPosition = new Vector3();
+    let finalCameraPosition = new Vector3();
+    let finalLookAtPosition = new Vector3();
 
     const createSpheresFromData = (data: any, scene: Scene) => {
       data.forEach((sphereInfo: any) => {
@@ -105,6 +122,61 @@ export default {
       });
     };
 
+    /** const onMouseRightClick = (event: MouseEvent) => {
+      if (!renderer) return;
+      
+      const rect = experience.value?.getBoundingClientRect();
+      if (!rect) return;
+
+      // Convert mouse click position to normalized device coordinates
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Raycasting from camera to click point
+      raycaster.setFromCamera(mouse, camera);
+
+      // Intersect the model (assume the model mesh is called `model`)
+      const intersects = raycaster.intersectObject(scene.children.find(c => c instanceof Mesh) as Mesh);
+      
+      if (intersects.length > 0) {
+        const intersection = intersects[0];
+        
+        // Get the exact point on the surface where the ray hit the model
+        const hitPoint = intersection.point;  // Vector3 with the exact hit position
+
+        // Optionally, you can also get face and normal info
+        const face = intersection.face;  // The intersected face
+        const faceNormal = face?.normal;  // The normal of the face
+
+        const snewchie = {
+          "radius": 0.5,
+          "widthSegments": 32,
+          "heightSegments": 32,
+          "color": "#ff0000",
+          "tag": "red"
+        }
+
+        const geometry = new SphereGeometry(
+          snewchie.radius,
+          snewchie.widthSegments,
+          snewchie.heightSegments
+        );
+        const material = new MeshMatcapMaterial({
+          color: snewchie.color,
+          matcap: new TextureLoader().load(props.textureUrl || '')
+        });
+        const sphere = new Mesh(geometry, material);
+        sphere.userData.tag = snewchie.tag;
+        sphere.position.set(hitPoint.x, hitPoint.y, hitPoint.z);
+        scene.add(sphere);
+        spheres.push(sphere);
+
+        // You can use this data for further logic
+        console.log("Hit point on model:", hitPoint);
+        console.log("Intersected face normal:", faceNormal);
+      }
+    }; */
+
     const onMouseClick = (event: MouseEvent) => {
       if (!renderer) return;
 
@@ -117,11 +189,28 @@ export default {
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(spheres);
       if (intersects.length > 0) {
-        const sphereTag = intersects[0].object.userData.tag;
+        const sphere = intersects[0].object as Mesh;
+        const sphereTag = sphere.userData.tag;
         output.value = sphereTag;
-        console.log(sphereTag);
-        const event = new CustomEvent('deviation-clicked-event', { detail: sphereTag });
-        window.document.dispatchEvent(event);
+
+        const spherePosition = sphere.position.clone();
+
+        // Animate camera movement to the clicked sphere
+        initialCameraPosition.copy(camera.position);  // Starting camera position
+        initialLookAtPosition.copy(target);           // Starting look-at target
+
+        // Calculate the direction from the model center to the sphere
+        const direction = new Vector3()
+          .subVectors(spherePosition, modelCenter)
+          .normalize();
+
+        // Adjust final camera position to be far enough away from the model and sphere
+        finalLookAtPosition.copy(spherePosition);  // Look at the sphere itself
+        finalCameraPosition.copy(spherePosition)
+          .addScaledVector(direction, modelBoundingSphereRadius * 1);  // Move along the direction away from the sphere
+
+        isAnimating = true;
+        animationProgress = 0;
       }
     };
 
@@ -137,15 +226,32 @@ export default {
           canvas: experience.value,
           antialias: true,
         });
-        renderer.setSize(1600, 1200);
+        renderer.setSize(900, 500);
         renderer.shadowMap.enabled = true;
-        // renderer.shadowMap.type = PCFSoftShadowMap; // Softer shadows
 
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.update();
 
         const animate = () => {
           requestAnimationFrame(animate);
+
+          if (isAnimating) {
+            animationProgress += 1;
+            const alpha = animationProgress / animationDuration;
+
+            // Lerp camera position and target position smoothly
+            camera.position.copy(lerp(initialCameraPosition, finalCameraPosition, alpha));
+            target.copy(lerp(initialLookAtPosition, finalLookAtPosition, alpha));
+
+            // If the animation is done
+            if (animationProgress >= animationDuration) {
+              isAnimating = false;
+            }
+          }
+
+          // Always look at the target (whether animating or not)
+          camera.lookAt(target);
+
           controls.update();
           renderer!.render(scene, camera);
         };
@@ -168,14 +274,14 @@ export default {
             scene.add(mesh);
 
             // Add AxesHelper to show model rotation
-            const axesHelper = new AxesHelper(50); // Adjust the size if needed
-            
+            const axesHelper = new AxesHelper(50);  // Adjust the size if needed
             mesh.add(axesHelper);
 
             // Create spheres from the provided data
             createSpheresFromData(props.data, scene);
 
             window.addEventListener('click', onMouseClick, false);
+            // window.addEventListener('contextmenu', onMouseRightClick, false);
           },
           (xhr) => {
             console.log(`${(xhr.loaded / xhr.total) * 100}% loaded`);
